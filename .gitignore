@@ -1,0 +1,65 @@
+# Unity generated folders
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Mm]emoryCaptures/
+UserSettings/
+
+# Keep source and config
+# Assets/
+# Packages/
+# ProjectSettings/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Unity caches / local tooling
+sysinfo.txt
+ExportedObj/
+.consulo/
+.gradle/
+
+# Package / build artifacts
+*.apk
+*.aab
+*.app
+*.unitypackage
+
+# Plastic plugin generated local files
+/Assets/Plugins/PlasticSCM*
+
+# Addressables generated binaries
+**/Assets/AddressableAssetsData/*/*.bin*
+**/Assets/StreamingAssets/aa.meta
+**/Assets/StreamingAssets/*/aa/*
+
+# IMPORTANT: keep .meta files tracked for Unity
+!*.meta
+
+# Keep local tgz package dependencies used by manifest.json
+# (Required by: file:../ContentPackages/*.tgz)
+!ContentPackages/
+!ContentPackages/*.tgz
