@@ -19,12 +19,17 @@ public class PaddleHitController : MonoBehaviour
     public Vector3 localFaceNormal = Vector3.right;
 
     [Header("Hit Physics")]
-    public float restitution = 0.9f;
-    public float paddleVelocityInfluence = 0.35f;
-    public float forwardBoost = 1.1f;
+    // Coefficient of restitution: 1 = perfectly elastic, 0 = perfectly plastic.
+    // A real pickleball COR is typically 0.82–0.90 at tournament speed.
+    public float restitution = 0.86f;
+    // Coulomb friction coefficient between paddle surface and ball (tangential impulse).
+    // Controls how much lateral paddle motion transfers to the ball and drives spin.
+    public float frictionCoefficient = 0.35f;
     public float maxBallSpeed = 22f;
-    public float spinFromTangential = 0.18f;
-    public float spinFromOffCenter = 6f;
+    // Multiplier for angular impulse from off-center contact (higher = more topspin/slice).
+    public float spinFromOffCenter = 5f;
+    // Multiplier for spin contribution from paddle rotation at impact.
+    public float spinFromTangential = 0.15f;
     public float hitCooldown = 0.03f;
     public bool requireBallTag;
     public string ballTag = "Ball";
@@ -93,6 +98,24 @@ public class PaddleHitController : MonoBehaviour
         Vector3 worldPosition = GetTargetWorldPosition();
         Quaternion worldRotation = GetTargetWorldRotation(worldPosition);
 
+        // ── Paddle velocity via finite-difference on the TARGET position ──────────
+        // IMPORTANT: Kinematic Rigidbodies always report .velocity = Vector3.zero in
+        // Unity regardless of how fast MovePosition moves them.  We must compute the
+        // velocity ourselves from the delta of the desired (target) position between
+        // consecutive FixedUpdate ticks.  This is the only reliable source of paddle
+        // swing speed for the impulse solver.
+        paddleVelocity = (worldPosition - previousPosition) / Mathf.Max(Time.fixedDeltaTime, 0.0001f);
+
+        // Angular velocity: finite-difference on target rotation.
+        Quaternion previousRotation = paddleRigidbody != null
+            ? paddleRigidbody.rotation
+            : transform.rotation;
+        Quaternion deltaRotation = worldRotation * Quaternion.Inverse(previousRotation);
+        deltaRotation.ToAngleAxis(out float deltaAngle, out Vector3 deltaAxis);
+        if (deltaAngle > 180f) { deltaAngle -= 360f; }
+        paddleAngularVelocity = deltaAxis * (deltaAngle * Mathf.Deg2Rad / Mathf.Max(Time.fixedDeltaTime, 0.0001f));
+
+        // ── Move the paddle ───────────────────────────────────────────────────────
         if (paddleRigidbody != null)
         {
             float lerpFactor = 1f - Mathf.Exp(-followSharpness * Time.fixedDeltaTime);
@@ -107,16 +130,7 @@ public class PaddleHitController : MonoBehaviour
             transform.SetPositionAndRotation(worldPosition, worldRotation);
         }
 
-        Vector3 currentPosition = transform.position;
-        paddleVelocity = (currentPosition - previousPosition) / Mathf.Max(Time.fixedDeltaTime, 0.0001f);
-        Quaternion deltaRotation = worldRotation * Quaternion.Inverse(transform.rotation);
-        deltaRotation.ToAngleAxis(out float deltaAngle, out Vector3 deltaAxis);
-        if (deltaAngle > 180f)
-        {
-            deltaAngle -= 360f;
-        }
-        paddleAngularVelocity = deltaAxis * (deltaAngle * Mathf.Deg2Rad / Mathf.Max(Time.fixedDeltaTime, 0.0001f));
-        previousPosition = currentPosition;
+        previousPosition = worldPosition;
 
         if (enableProximityFallback)
         {
@@ -176,7 +190,16 @@ public class PaddleHitController : MonoBehaviour
 
         if (distance <= proximityHitDistance)
         {
-            TryHitBall(candidateBall, candidateBall.gameObject, closestPointOnPaddle);
+            // Normal points from the paddle surface toward the ball COM.
+            Vector3 toball = ballPosition - closestPointOnPaddle;
+            Vector3 surfaceNormal = toball.sqrMagnitude > 0.0001f
+                ? toball.normalized
+                : transform.TransformDirection(localFaceNormal).normalized;
+
+            // Draw a debug sphere at the contact point so you can see the hit in Scene view.
+            Debug.DrawLine(closestPointOnPaddle, ballPosition, Color.yellow, 0.1f);
+
+            ApplyHitImpulse(candidateBall, closestPointOnPaddle, surfaceNormal);
         }
     }
 
@@ -198,7 +221,21 @@ public class PaddleHitController : MonoBehaviour
                 continue;
             }
 
-            Vector3 candidatePoint = paddleCollider.ClosestPoint(worldPoint);
+            Vector3 candidatePoint;
+
+            // ClosestPoint only works on Box/Sphere/Capsule and CONVEX MeshColliders.
+            // For non-convex MeshColliders, fall back to the collider's AABB closest point,
+            // which is a good enough approximation for the proximity-hit normal direction.
+            MeshCollider mc = paddleCollider as MeshCollider;
+            if (mc != null && !mc.convex)
+            {
+                candidatePoint = paddleCollider.bounds.ClosestPoint(worldPoint);
+            }
+            else
+            {
+                candidatePoint = paddleCollider.ClosestPoint(worldPoint);
+            }
+
             float candidateDistance = (candidatePoint - worldPoint).sqrMagnitude;
             if (candidateDistance < bestDistance)
             {
@@ -261,50 +298,78 @@ public class PaddleHitController : MonoBehaviour
         return lookRotation * Quaternion.Euler(baseLocalEuler);
     }
 
+    // ── Paddle-side collision callbacks (secondary path) ─────────────────────────
+    // NOTE: These fire on the PADDLE (kinematic), which Unity does not always
+    // guarantee for kinematic-vs-dynamic contacts.  BallContactDetector on the
+    // ball is the primary, reliable path.  These act as an extra safety net.
+
     private void OnCollisionEnter(Collision collision)
     {
-        if (collision.contactCount == 0)
-        {
-            return;
-        }
-
-        ContactPoint contact = collision.GetContact(0);
-        TryHitBall(collision.rigidbody, collision.gameObject, contact.point);
+        HandlePaddleCollision(collision);
     }
 
     private void OnCollisionStay(Collision collision)
     {
-        if (collision.contactCount == 0)
+        HandlePaddleCollision(collision);
+    }
+
+    private void HandlePaddleCollision(Collision collision)
+    {
+        if (collision.contactCount == 0 || collision.rigidbody == null)
         {
             return;
         }
 
         ContactPoint contact = collision.GetContact(0);
-        TryHitBall(collision.rigidbody, collision.gameObject, contact.point);
+
+        // From the PADDLE's OnCollision, contact.normal points FROM ball INTO paddle.
+        // Negate it to get the outward paddle-surface normal (paddle → ball).
+        Vector3 surfaceNormal = -contact.normal;
+        ApplyHitImpulse(collision.rigidbody, contact.point, surfaceNormal);
     }
 
     private void OnTriggerEnter(Collider other)
     {
-        Rigidbody otherRigidbody = other.attachedRigidbody;
-        Vector3 contactPoint = other.ClosestPoint(transform.position);
-        TryHitBall(otherRigidbody, other.gameObject, contactPoint);
+        HandlePaddleTrigger(other);
     }
 
     private void OnTriggerStay(Collider other)
     {
-        Rigidbody otherRigidbody = other.attachedRigidbody;
-        Vector3 contactPoint = other.ClosestPoint(transform.position);
-        TryHitBall(otherRigidbody, other.gameObject, contactPoint);
+        HandlePaddleTrigger(other);
     }
 
-    private void TryHitBall(Rigidbody ballRigidbody, GameObject ballObject, Vector3 contactPoint)
+    private void HandlePaddleTrigger(Collider other)
     {
-        if (ballRigidbody == null)
+        Rigidbody otherRigidbody = other.attachedRigidbody;
+        if (otherRigidbody == null)
         {
             return;
         }
 
-        if (requireBallTag && !ballObject.CompareTag(ballTag))
+        Vector3 contactPoint = other.ClosestPoint(transform.position);
+        // Derive normal from paddle surface → ball centre of mass.
+        Vector3 toball = otherRigidbody.worldCenterOfMass - contactPoint;
+        Vector3 surfaceNormal = toball.sqrMagnitude > 0.0001f
+            ? toball.normalized
+            : transform.TransformDirection(localFaceNormal).normalized;
+        ApplyHitImpulse(otherRigidbody, contactPoint, surfaceNormal);
+    }
+
+    /// <summary>
+    /// Public entry point for all hit detection paths (BallContactDetector, proximity
+    /// fallback, and the paddle-side collision callbacks).
+    ///
+    /// <paramref name="surfaceNormal"/> must point FROM the paddle surface TOWARD the
+    /// ball centre of mass.  This is the outward paddle normal at the contact point.
+    /// </summary>
+    public void ApplyHitImpulse(Rigidbody ballBody, Vector3 contactPoint, Vector3 surfaceNormal)
+    {
+        if (ballBody == null)
+        {
+            return;
+        }
+
+        if (requireBallTag && !ballBody.gameObject.CompareTag(ballTag))
         {
             return;
         }
@@ -314,33 +379,90 @@ public class PaddleHitController : MonoBehaviour
             return;
         }
 
-        Vector3 faceNormal = transform.TransformDirection(localFaceNormal).normalized;
-        Vector3 toBall = (ballRigidbody.worldCenterOfMass - contactPoint).normalized;
-        if (Vector3.Dot(faceNormal, toBall) < 0f)
+        // ── Sanitise the surface normal ───────────────────────────────────────────
+        // Ensure it actually points from the paddle toward the ball COM.
+        // If the provided normal points the wrong way (can happen with trigger overlaps),
+        // flip it so the impulse always pushes the ball away from the paddle.
+        Vector3 faceNormal = surfaceNormal.normalized;
+        Vector3 toBallCOM = ballBody.worldCenterOfMass - contactPoint;
+        if (Vector3.Dot(faceNormal, toBallCOM) < 0f)
         {
             faceNormal = -faceNormal;
         }
 
-        Vector3 incomingVelocity = ballRigidbody.velocity;
-        Vector3 reflectedVelocity = Vector3.Reflect(incomingVelocity, faceNormal) * restitution;
+        // ── Paddle surface velocity at the contact point ──────────────────────────
+        // v_surface = v_paddle + ω_paddle × (contactPoint − paddleCOM)
+        // Capturing the rotational contribution means a wrist-snap adds exactly the
+        // right tangential speed at the edge of the paddle face.
+        Vector3 paddleCOM = paddleRigidbody != null
+            ? paddleRigidbody.worldCenterOfMass
+            : transform.position;
+        Vector3 paddleContactVelocity =
+            paddleVelocity + Vector3.Cross(paddleAngularVelocity, contactPoint - paddleCOM);
 
-        Vector3 tangentialVelocity = paddleVelocity - Vector3.Project(paddleVelocity, faceNormal);
-        Vector3 outgoingVelocity = reflectedVelocity;
-        outgoingVelocity += tangentialVelocity * paddleVelocityInfluence;
-        outgoingVelocity += cameraTransform.forward * forwardBoost;
+        // ── Relative velocity of the ball w.r.t. the paddle surface ──────────────
+        Vector3 relativeVelocity = ballBody.velocity - paddleContactVelocity;
+        float vN = Vector3.Dot(relativeVelocity, faceNormal);
 
-        if (outgoingVelocity.magnitude > maxBallSpeed)
+        // Guard: only apply an impulse when the paddle is moving INTO the ball
+        // (vN < 0) OR when the paddle is actively approaching (paddleVelocity toward
+        // ball has sufficient magnitude).  This prevents phantom impulses when the
+        // paddle is withdrawing after a hit but the cooldown hasn't expired.
+        //
+        // We use a small positive tolerance (0.05 m/s) to accept near-zero relative
+        // velocity contacts, e.g. a stationary paddle resting against the ball.
+        if (vN > 0.05f)
         {
-            outgoingVelocity = outgoingVelocity.normalized * maxBallSpeed;
+            return;
         }
 
-        ballRigidbody.velocity = outgoingVelocity;
+        // ── Normal impulse (COR model, infinite-mass paddle approximation) ────────
+        // Δv_n = −(1 + e) · vN · n
+        float vNClamped = Mathf.Min(vN, 0f); // cap at 0 to handle the tolerance case
+        Vector3 normalDeltaV = -(1f + restitution) * vNClamped * faceNormal;
 
-        Vector3 contactOffset = contactPoint - ballRigidbody.worldCenterOfMass;
-        Vector3 spinFromSwipe = Vector3.Cross(faceNormal, tangentialVelocity) * spinFromTangential;
-        Vector3 spinFromOffset = Vector3.Cross(contactOffset, outgoingVelocity) * spinFromOffCenter;
-        ballRigidbody.angularVelocity += spinFromSwipe + spinFromOffset + paddleAngularVelocity * 0.05f;
+        // ── Tangential impulse (Coulomb friction) ─────────────────────────────────
+        // The ball slides across the paddle face; friction opposes the sliding
+        // direction and is clamped to the Coulomb cone: |Δv_t| ≤ μ·|Δv_n|.
+        Vector3 tangentialRelVel = relativeVelocity - vNClamped * faceNormal;
+        float tangentialSpeed = tangentialRelVel.magnitude;
+
+        Vector3 tangentialDeltaV = Vector3.zero;
+        if (tangentialSpeed > 0.001f)
+        {
+            float frictionLimit = frictionCoefficient * normalDeltaV.magnitude;
+            float frictionMag = Mathf.Min(frictionLimit, tangentialSpeed);
+            tangentialDeltaV = -(tangentialRelVel / tangentialSpeed) * frictionMag;
+        }
+
+        // ── Compose & apply velocity impulse ──────────────────────────────────────
+        Vector3 newVelocity = ballBody.velocity + normalDeltaV + tangentialDeltaV;
+
+        if (newVelocity.magnitude > maxBallSpeed)
+        {
+            newVelocity = newVelocity.normalized * maxBallSpeed;
+        }
+
+        // ForceMode.VelocityChange applies Δv directly, independent of ball mass.
+        ballBody.AddForce(newVelocity - ballBody.velocity, ForceMode.VelocityChange);
+
+        // ── Angular impulse (spin) ────────────────────────────────────────────────
+        // 1. Off-centre contact: tangential impulse × lever arm from ball COM.
+        //    Δω ≈ spinFromOffCenter · (r_contact × Δv_t)   [hollow sphere factor]
+        Vector3 contactOffset = contactPoint - ballBody.worldCenterOfMass;
+        Vector3 spinOffCenter = spinFromOffCenter * Vector3.Cross(contactOffset, tangentialDeltaV);
+
+        // 2. Paddle rotation (wrist snap): transmits spin via surface friction.
+        //    Δω ≈ spinFromTangential · (n × ω_paddle)
+        Vector3 spinWrist = spinFromTangential * Vector3.Cross(faceNormal, paddleAngularVelocity);
+
+        ballBody.AddTorque(spinOffCenter + spinWrist, ForceMode.VelocityChange);
 
         lastHitTime = Time.time;
+
+        Debug.Log($"[Hit] vN={vN:F2}  paddleSpeed={paddleVelocity.magnitude:F2} m/s" +
+                  $"  paddleContactVel={paddleContactVelocity.magnitude:F2} m/s" +
+                  $"  ball-out={newVelocity.magnitude:F1} m/s" +
+                  $"  normalDeltaV={normalDeltaV.magnitude:F2}");
     }
 }

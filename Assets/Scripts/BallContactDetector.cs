@@ -1,0 +1,213 @@
+using UnityEngine;
+
+/// <summary>
+/// Attach this to the Ball GameObject (the one with a Rigidbody + Collider).
+///
+/// WHY THIS EXISTS
+/// ───────────────
+/// The paddle is a kinematic Rigidbody that moves via MovePosition every physics
+/// tick.  Unity only fires OnCollisionEnter on the DYNAMIC body when a kinematic
+/// body moves into it – the kinematic body (paddle) itself gets no reliable callback.
+/// By putting the detector on the ball (dynamic), we get Unity's authoritative
+/// ContactPoint data (real surface normal, exact hit point) and forward it to the
+/// paddle's impulse solver.
+///
+/// SETUP
+/// ─────
+/// 1. Drag this component onto the ball GameObject.
+/// 2. Assign the PaddleHitController reference in the Inspector, OR leave it null
+///    and it will search the scene at Start.
+/// 3. Make sure the ball has a Rigidbody (non-kinematic) and at least one Collider.
+/// 4. Make sure the paddle has at least one Collider (trigger OR solid – both work).
+/// </summary>
+[RequireComponent(typeof(Rigidbody))]
+public class BallContactDetector : MonoBehaviour
+{
+    [Header("Paddle Reference")]
+    [Tooltip("Drag the paddle GameObject (with PaddleHitController) here. " +
+             "Leave null to auto-find at runtime.")]
+    public PaddleHitController paddle;
+
+    [Header("Continuous Overlap Fallback")]
+    [Tooltip("Runs every FixedUpdate as a last resort in case Unity misses the " +
+             "collision callback (e.g. very fast tunnelling or no Collider on paddle).")]
+    public bool enableOverlapFallback = true;
+    [Tooltip("Radius of the OverlapSphere centred on the ball. Should be at least " +
+             "ball-radius + a small margin (e.g. 0.08 for a regulation pickleball).")]
+    public float overlapRadius = 0.10f;
+
+    // ── private ──────────────────────────────────────────────────────────────────
+
+    private Rigidbody ballRigidbody;
+
+    // Colliders that belong to the paddle, cached to avoid per-frame GetComponent.
+    private Collider[] paddleColliders;
+
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    private void Awake()
+    {
+        ballRigidbody = GetComponent<Rigidbody>();
+    }
+
+    private void Start()
+    {
+        // Auto-find the paddle if not wired up in the Inspector.
+        if (paddle == null)
+        {
+            paddle = FindFirstObjectByType<PaddleHitController>();
+            if (paddle == null)
+            {
+                Debug.LogWarning("[BallContactDetector] No PaddleHitController found in scene. " +
+                                 "Assign it manually.", this);
+            }
+        }
+
+        if (paddle != null)
+        {
+            paddleColliders = paddle.GetComponentsInChildren<Collider>(includeInactive: true);
+
+            if (paddleColliders.Length == 0)
+            {
+                // No colliders found on the paddle or its children.
+                // The overlap fallback will still run but will match ANY nearby
+                // non-ball Rigidbody as a last resort.
+                Debug.LogWarning(
+                    "[BallContactDetector] PaddleHitController found but it has NO Colliders " +
+                    "on itself or its children. Add a CapsuleCollider or MeshCollider to the " +
+                    "paddle (Racket_Pickelball1) in the Inspector.", this);
+            }
+            else
+            {
+                string names = "";
+                for (int i = 0; i < paddleColliders.Length; i++)
+                {
+                    names += paddleColliders[i].gameObject.name;
+                    if (i < paddleColliders.Length - 1) names += ", ";
+                }
+                Debug.Log($"[BallContactDetector] Registered {paddleColliders.Length} paddle " +
+                          $"collider(s): {names}", this);
+            }
+        }
+    }
+
+    // ── Unity collision callbacks (most reliable path) ────────────────────────────
+
+    private void OnCollisionEnter(Collision collision)
+    {
+        HandleCollision(collision);
+    }
+
+    private void OnCollisionStay(Collision collision)
+    {
+        HandleCollision(collision);
+    }
+
+    private void HandleCollision(Collision collision)
+    {
+        if (paddle == null || collision.contactCount == 0)
+        {
+            return;
+        }
+
+        // Accept the hit if the collider belongs to the paddle (or any child of it).
+        if (!IsPaddleCollider(collision.collider))
+        {
+            return;
+        }
+
+        ContactPoint contact = collision.GetContact(0);
+
+        // contact.normal points FROM the other body (paddle) INTO this body (ball).
+        // This is exactly the outward surface normal we need for the impulse solver.
+        paddle.ApplyHitImpulse(ballRigidbody, contact.point, contact.normal);
+    }
+
+    // ── FixedUpdate OverlapSphere fallback ────────────────────────────────────────
+
+    private void FixedUpdate()
+    {
+        if (!enableOverlapFallback || paddle == null)
+        {
+            return;
+        }
+
+        // Broad-phase: any collider within overlapRadius of the ball centre?
+        Collider[] hits = Physics.OverlapSphere(
+            ballRigidbody.worldCenterOfMass,
+            overlapRadius,
+            Physics.AllLayers,
+            QueryTriggerInteraction.Collide);
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            // Skip ourselves.
+            if (hits[i].attachedRigidbody == ballRigidbody)
+            {
+                continue;
+            }
+
+            bool isPaddle = IsPaddleCollider(hits[i]);
+
+            // Emergency path: if the paddle has no registered colliders at all,
+            // accept any non-ball Rigidbody within range whose GameObject name
+            // or parent name contains "paddle" or "racket".
+            if (!isPaddle && (paddleColliders == null || paddleColliders.Length == 0))
+            {
+                string n = hits[i].gameObject.name.ToLower();
+                Transform p = hits[i].transform.parent;
+                string pn = p != null ? p.gameObject.name.ToLower() : "";
+                if (n.Contains("paddle") || n.Contains("racket") ||
+                    pn.Contains("paddle") || pn.Contains("racket") ||
+                    hits[i].transform.IsChildOf(paddle.transform) ||
+                    paddle.transform.IsChildOf(hits[i].transform.root))
+                {
+                    isPaddle = true;
+                }
+            }
+
+            if (!isPaddle)
+            {
+                continue;
+            }
+
+            // Compute the contact point as the point on the paddle collider closest
+            // to the ball centre of mass.
+            // ClosestPoint only supports Box/Sphere/Capsule and convex MeshColliders;
+            // fall back to bounds for non-convex mesh colliders.
+            MeshCollider mc = hits[i] as MeshCollider;
+            Vector3 contactPoint = (mc != null && !mc.convex)
+                ? hits[i].bounds.ClosestPoint(ballRigidbody.worldCenterOfMass)
+                : hits[i].ClosestPoint(ballRigidbody.worldCenterOfMass);
+
+            // Build the surface normal pointing from paddle surface → ball COM.
+            Vector3 toball = ballRigidbody.worldCenterOfMass - contactPoint;
+            Vector3 surfaceNormal = toball.sqrMagnitude > 0.0001f
+                ? toball.normalized
+                : -paddle.transform.forward; // degenerate fallback
+
+            paddle.ApplyHitImpulse(ballRigidbody, contactPoint, surfaceNormal);
+            break; // one hit per tick is enough
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────────
+
+    private bool IsPaddleCollider(Collider col)
+    {
+        if (paddleColliders == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < paddleColliders.Length; i++)
+        {
+            if (paddleColliders[i] == col)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}

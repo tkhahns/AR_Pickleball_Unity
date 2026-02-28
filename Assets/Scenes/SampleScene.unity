@@ -667,6 +667,10 @@ PrefabInstance:
         type: 3}
       insertIndex: -1
       addedObject: {fileID: 478547188}
+    - targetCorrespondingSourceObject: {fileID: 8016161030243015274, guid: 828cff2e28f50a344aefa282207ddf27,
+        type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 478547192}
   m_SourcePrefab: {fileID: 100100000, guid: 828cff2e28f50a344aefa282207ddf27, type: 3}
 --- !u!4 &478547183 stripped
 Transform:
@@ -742,6 +746,21 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   servePoint: {fileID: 955997898}
   resetKey: 114
+--- !u!114 &478547192
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 478547184}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0f56d8efb53063f4780785454b9308b6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  paddle: {fileID: 0}
+  enableOverlapFallback: 1
+  overlapRadius: 0.1
 --- !u!1 &955997897
 GameObject:
   m_ObjectHideFlags: 0
@@ -1224,6 +1243,14 @@ PrefabInstance:
         type: 3}
       insertIndex: -1
       addedObject: {fileID: 2017761824}
+    - targetCorrespondingSourceObject: {fileID: 7701182215089478328, guid: 8abdfe682cdafad469a6425f0987b3ce,
+        type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 2017761828}
+    - targetCorrespondingSourceObject: {fileID: 7701182215089478328, guid: 8abdfe682cdafad469a6425f0987b3ce,
+        type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 2017761827}
   m_SourcePrefab: {fileID: 100100000, guid: 8abdfe682cdafad469a6425f0987b3ce, type: 3}
 --- !u!4 &1209082406 stripped
 Transform:
@@ -1443,17 +1470,61 @@ MonoBehaviour:
   baseLocalEuler: {x: 15, y: -90, z: 0}
   localFaceNormal: {x: 1, y: 0, z: 0}
   restitution: 0.9
-  paddleVelocityInfluence: 0.35
-  forwardBoost: 1.1
+  frictionCoefficient: 0.35
   maxBallSpeed: 16
-  spinFromTangential: 0.18
   spinFromOffCenter: 6
+  spinFromTangential: 0.18
   hitCooldown: 0.03
   requireBallTag: 0
   ballTag: Ball
   trackedBall: {fileID: 478547185}
   enableProximityFallback: 1
   proximityHitDistance: 0.12
+--- !u!64 &2017761827
+MeshCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2017761821}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 5
+  m_Convex: 0
+  m_CookingOptions: 30
+  m_Mesh: {fileID: -1515240864618781017, guid: 6081d1ab2a815444a9f6ef46f080b785, type: 3}
+--- !u!136 &2017761828
+CapsuleCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2017761821}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Radius: 0.20622076
+  m_Height: 0.027241535
+  m_Direction: 1
+  m_Center: {x: 0, y: 0.0056596333, z: 0.00041576463}
 --- !u!1001 &2053920333
 PrefabInstance:
   m_ObjectHideFlags: 0
