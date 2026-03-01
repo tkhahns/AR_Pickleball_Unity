@@ -14,6 +14,12 @@ public class PaddleHitController : MonoBehaviour
     public float defaultScreenY = 0.36f;
     public bool lockCursorOnPlay;
 
+    [Header("AR / Device Control")]
+    [Tooltip("When true, use mouse position to place the paddle in editor mode.")]
+    public bool useMouseInEditor = true;
+    [Tooltip("When true, device builds ignore mouse input and keep paddle anchored to default screen point relative to AR camera.")]
+    public bool useCameraRelativePointOnDevice = true;
+
     [Header("Paddle Pose")]
     public Vector3 baseLocalEuler = new Vector3(15f, -90f, 0f);
     public Vector3 localFaceNormal = Vector3.right;
@@ -254,14 +260,24 @@ public class PaddleHitController : MonoBehaviour
         Vector3 localOffset;
         if (sourceCamera != null)
         {
-            Vector3 mousePosition = Input.mousePosition;
+            bool isDeviceBuild = !Application.isEditor;
+            bool useMouseInput = useMouseInEditor && !isDeviceBuild;
 
             if (lockCursorOnPlay)
             {
-                mousePosition = new Vector3(Screen.width * defaultScreenX, Screen.height * defaultScreenY, 0f);
+                useMouseInput = false;
             }
 
-            Ray mouseRay = sourceCamera.ScreenPointToRay(mousePosition);
+            if (isDeviceBuild && useCameraRelativePointOnDevice)
+            {
+                useMouseInput = false;
+            }
+
+            Vector3 screenPoint = useMouseInput
+                ? Input.mousePosition
+                : new Vector3(Screen.width * defaultScreenX, Screen.height * defaultScreenY, 0f);
+
+            Ray mouseRay = sourceCamera.ScreenPointToRay(screenPoint);
             Plane paddlePlane = new Plane(cameraTransform.forward, cameraTransform.position + cameraTransform.forward * depthFromCamera);
 
             if (paddlePlane.Raycast(mouseRay, out float enterDistance))

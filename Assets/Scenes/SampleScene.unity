@@ -413,6 +413,9 @@ GameObject:
   - component: {fileID: 305298047}
   - component: {fileID: 305298046}
   - component: {fileID: 305298048}
+  - component: {fileID: 305298051}
+  - component: {fileID: 305298050}
+  - component: {fileID: 305298049}
   m_Layer: 0
   m_Name: XR Origin
   m_TagString: Untagged
@@ -436,7 +439,7 @@ MonoBehaviour:
   m_OriginBaseGameObject: {fileID: 305298045}
   m_CameraFloorOffsetObject: {fileID: 103931442}
   m_RequestedTrackingOriginMode: 0
-  m_CameraYOffset: 1.65
+  m_CameraYOffset: 1.7
 --- !u!4 &305298047
 Transform:
   m_ObjectHideFlags: 0
@@ -470,6 +473,58 @@ MonoBehaviour:
   m_MaxNumberOfMovingImages: 0
   m_TrackedImagePrefab: {fileID: 4191857040269295559, guid: 2dfb580a201affe419bae7573c7d2398,
     type: 3}
+--- !u!114 &305298049
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 305298045}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a209e9103764fc749bc3944d01d393e9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gameSpaceRoot: {fileID: 1666865632}
+  hideGameSpaceUntilPlaced: 1
+  planeManager: {fileID: 305298051}
+  raycastManager: {fileID: 305298050}
+  arCamera: {fileID: 955997903}
+  autoPlaceOnFirstDetectedPlane: 1
+  requireTapToPlace: 0
+  allowRepositionAfterPlacement: 0
+  placementOffsetMeters: {x: 0, y: 0, z: 0}
+  rotationOffsetEuler: {x: 0, y: 0, z: 0}
+  alignYawToCamera: 1
+  disablePlaneDetectionAfterPlacement: 1
+  disablePlaneVisualsAfterPlacement: 1
+--- !u!114 &305298050
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 305298045}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fa17d122634046b4a8e23048891fafc5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_RaycastPrefab: {fileID: 0}
+--- !u!114 &305298051
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 305298045}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e1760703bbd54c04488a8d10600262ab, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_PlanePrefab: {fileID: 0}
+  m_DetectionMode: -1
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0
@@ -1467,6 +1522,8 @@ MonoBehaviour:
   defaultScreenX: 0.75
   defaultScreenY: 0.36
   lockCursorOnPlay: 0
+  useMouseInEditor: 1
+  useCameraRelativePointOnDevice: 1
   baseLocalEuler: {x: 15, y: -90, z: 0}
   localFaceNormal: {x: 1, y: 0, z: 0}
   restitution: 0.9
